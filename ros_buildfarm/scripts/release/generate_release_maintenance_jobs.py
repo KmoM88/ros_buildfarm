@@ -106,7 +106,11 @@ def get_reconfigure_jobs_job_config(args, config, build_file):
 
 def get_trigger_jobs_job_config(args, config, build_file):
     template_name = 'release/release_trigger-jobs_job.xml.em'
-    data = {'missed_jobs': False}
+    is_wave = bool(
+        getattr(build_file, 'pipeline_jobs', False)
+        and getattr(build_file, 'orchestration_mode', '') == 'wave-orchestrator'
+    )
+    data = {'missed_jobs': False, 'disabled': is_wave}
     return _get_job_config(
         args, config, build_file.notify_emails, template_name,
         additional_data=data, build_file=build_file)
@@ -114,7 +118,11 @@ def get_trigger_jobs_job_config(args, config, build_file):
 
 def get_trigger_missed_jobs_job_config(args, config, build_file):
     template_name = 'release/release_trigger-jobs_job.xml.em'
-    data = {'missed_jobs': True}
+    is_wave = bool(
+        getattr(build_file, 'pipeline_jobs', False)
+        and getattr(build_file, 'orchestration_mode', '') == 'wave-orchestrator'
+    )
+    data = {'missed_jobs': True, 'disabled': is_wave}
     return _get_job_config(
         args, config, build_file.notify_emails, template_name,
         additional_data=data, build_file=build_file)

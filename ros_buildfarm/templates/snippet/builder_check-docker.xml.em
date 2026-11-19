@@ -10,7 +10,7 @@ base_image = '%s:%s' % (
     script='\n'.join([
         'echo "# BEGIN SECTION: Check docker status"',
         'echo "Testing trivial docker invocation..."',
-        'docker run --rm %s true ; echo "\'docker run\' returned $?"' % base_image,
+        'docker run --rm --network=host %s true ; echo "\'docker run\' returned $?"' % base_image,
     ]),
 ))@
 @(SNIPPET(

@@ -60,7 +60,7 @@ if missed_jobs:
   <scmCheckoutRetryCount>2</scmCheckoutRetryCount>
   <assignedNode>agent_on_master</assignedNode>
   <canRoam>false</canRoam>
-  <disabled>false</disabled>
+  <disabled>@('true' if vars().get('disabled') else 'false')</disabled>
   <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
   <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
   <triggers>
@@ -116,7 +116,7 @@ if missed_jobs:
         'echo "# BEGIN SECTION: Build Dockerfile - trigger jobs"',
         'cd $WORKSPACE/docker_trigger_jobs',
         'python3 -u $WORKSPACE/ros_buildfarm/scripts/misc/docker_pull_baseimage.py',
-        'docker build --force-rm -t release_trigger_jobs .',
+        'docker build --network=host --force-rm -t release_trigger_jobs .',
         'echo "# END SECTION"',
         '',
         'echo "# BEGIN SECTION: Run Dockerfile - trigger jobs"',
