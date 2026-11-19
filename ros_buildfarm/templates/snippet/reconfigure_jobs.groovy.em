@@ -5,6 +5,7 @@ import groovy.io.FileType
 import groovy.transform.ThreadInterrupt
 import hudson.AbortException
 import hudson.model.View
+import java.io.ByteArrayInputStream
 import java.io.StringBufferInputStream
 import java.io.StringWriter
 import javax.xml.parsers.DocumentBuilderFactory
@@ -173,6 +174,18 @@ for (it in jobs) {
     p = Jenkins.instance.getItemByFullName(job_name)
     if (p) {
         job_config_file = p.getConfigFile()
+        current_root_tag = get_root_tag(job_config_file.getFile())
+        new_root_tag = get_root_tag(job_config)
+        if (current_root_tag != new_root_tag) {
+            println "Recreating job '" + job_name + "' [" + (skipped_jobs + updated_jobs + created_jobs + 1) + " / " + jobs.length + "] ('" + current_root_tag + "' -> '" + new_root_tag + "')" + dry_run_suffix
+            if (!dry_run) {
+                p.delete()
+                stream = new ByteArrayInputStream(job_config.getBytes('UTF-8'))
+                Jenkins.instance.createProjectFromXML(job_name, stream)
+            }
+            updated_jobs += 1
+            continue
+        }
 
         if (p.name.substring(1, 5) == 'pr__') {
             job_config = mergePullRequestData(job_name, job_config_file.getFile(), job_config)
@@ -235,6 +248,17 @@ for (item in job_prefixes_and_names) {
 }
 
 println '# END SECTION'
+
+
+def get_root_tag(config_source) {
+    factory = DocumentBuilderFactory.newInstance()
+    builder = factory.newDocumentBuilder()
+    if (config_source instanceof String) {
+        stream = new ByteArrayInputStream(config_source.getBytes('UTF-8'))
+        return builder.parse(stream).getDocumentElement().getTagName()
+    }
+    return builder.parse(config_source).getDocumentElement().getTagName()
+}
 
 
 def diff_configs(current_config, new_config) {

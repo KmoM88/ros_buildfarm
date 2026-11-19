@@ -31,9 +31,23 @@ def check_project(project, depth, verbose=true) {
   return true
 }
 
+def get_upstream_projects(project) {
+  def upstreams = [] as LinkedHashSet
+  if (project instanceof hudson.model.AbstractProject) {
+    upstreams.addAll(project.getUpstreamProjects())
+  }
+  def trigger = jenkins.model.ParameterizedJobMixIn.getTrigger(
+    project, jenkins.triggers.ReverseBuildTrigger.class)
+  if (trigger != null && trigger.getUpstreamProjects()) {
+    upstreams.addAll(hudson.model.Items.fromNameList(
+      project.getParent(), trigger.getUpstreamProjects(), hudson.model.Job.class))
+  }
+  return upstreams
+}
+
 def check_recursive_upstream_projects(project, checked_projects, depth=0, verbose=true) {
   checked_projects.add(project.name)
-  for (upstream in project.getUpstreamProjects()) {
+  for (upstream in get_upstream_projects(project)) {
     if (checked_projects.contains(upstream.name)) {
       continue
     }

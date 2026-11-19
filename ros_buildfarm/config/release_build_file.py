@@ -14,6 +14,29 @@
 
 from .build_file import BuildFile
 
+VALID_ORCHESTRATION_MODES = ('reverse-trigger', 'wave-orchestrator')
+VALID_DOCKER_MODES = ('baseline', 'shared-generator', 'shared-generator-and-base')
+
+
+def _parse_bool(data, key, default):
+    if key not in data:
+        return default
+    val = data[key]
+    if not isinstance(val, bool):
+        raise ValueError("'%s' must be a boolean, got %r" % (key, val))
+    return val
+
+
+def _parse_optional_str(data, key, default=None):
+    if key not in data or data[key] is None:
+        if default is not None and key in data and data[key] is None:
+            raise ValueError("'%s' must be a non-empty string" % key)
+        return default
+    val = data[key]
+    if not isinstance(val, str) or not val.strip():
+        raise ValueError("'%s' must be a non-empty string, got %r" % (key, val))
+    return val
+
 
 class ReleaseBuildFile(BuildFile):
 
@@ -132,6 +155,41 @@ class ReleaseBuildFile(BuildFile):
             if 'run_package_tests' in data['package_dependency_behavior']:
                 self.run_package_tests = \
                     bool(data['package_dependency_behavior']['run_package_tests'])
+
+        self.pipeline_jobs = _parse_bool(data, 'pipeline_jobs', False)
+        self.pipeline_shared_library = _parse_optional_str(
+            data, 'pipeline_shared_library', 'ros-buildfarm-pipelines@main')
+        self.orchestration_mode = _parse_optional_str(
+            data, 'orchestration_mode', 'reverse-trigger')
+        if self.orchestration_mode not in VALID_ORCHESTRATION_MODES:
+            raise ValueError("Unsupported 'orchestration_mode': %r" % (self.orchestration_mode,))
+
+        self.docker_mode = _parse_optional_str(data, 'docker_mode', 'baseline')
+        if self.docker_mode not in VALID_DOCKER_MODES:
+            raise ValueError("Unsupported 'docker_mode': %r" % (self.docker_mode,))
+
+        self.docker_base_image_override = _parse_optional_str(data, 'docker_base_image_override')
+        if self.docker_base_image_override is not None:
+            last_segment = self.docker_base_image_override.rsplit('/', 1)[-1]
+            if ':' in last_segment or '@' in last_segment:
+                raise ValueError(
+                    "'docker_base_image_override' must not include tag/digest: %r" %
+                    (self.docker_base_image_override,))
+
+        self.prebaked_base_image = _parse_bool(data, 'prebaked_base_image', False)
+        self.ros_buildfarm_repository_url = _parse_optional_str(
+            data, 'ros_buildfarm_repository_url')
+        self.ros_buildfarm_repository_version = _parse_optional_str(
+            data, 'ros_buildfarm_repository_version')
+
+        self.slice_packages = None
+        if 'slice_packages' in data and data['slice_packages'] is not None:
+            raw_slice = data['slice_packages']
+            if not isinstance(raw_slice, list) or not raw_slice or not all(
+                isinstance(p, str) and p.strip() for p in raw_slice
+            ):
+                raise ValueError("'slice_packages' must be a non-empty list of strings")
+            self.slice_packages = list(raw_slice)
 
     def filter_packages(self, package_names):
         res = set(package_names)

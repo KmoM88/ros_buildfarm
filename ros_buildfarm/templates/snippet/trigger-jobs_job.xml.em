@@ -68,8 +68,11 @@ import java.util.regex.Pattern
 import hudson.model.AbstractProject
 import hudson.model.BooleanParameterValue
 import hudson.model.Cause.UserIdCause
+import hudson.model.CauseAction
+import hudson.model.Job
 import hudson.model.ParametersAction
 import hudson.model.Result
+import jenkins.model.ParameterizedJobMixIn
 
 build = Thread.currentThread().executable
 resolver = build.buildVariableResolver
@@ -85,7 +88,8 @@ if (has_force_parameter) {
 }
 
 pattern = Pattern.compile("%s")
-for (p in hudson.model.Hudson.instance.getAllItems(AbstractProject)) {
+for (p in hudson.model.Hudson.instance.getAllItems(Job)) {
+    if (!(p instanceof ParameterizedJobMixIn.ParameterizedJob)) continue
     if (!pattern.matcher(p.name).matches()) continue
     if (p.isDisabled()) continue
     if (p.isBuilding()) continue
@@ -129,7 +133,11 @@ for (p in hudson.model.Hudson.instance.getAllItems(AbstractProject)) {
     }
     println p.name
     if (has_force_parameter) {
-        p.scheduleBuild(1, new UserIdCause(), new ParametersAction(new BooleanParameterValue("force", force)))
+        if (p instanceof AbstractProject) {
+            p.scheduleBuild(1, new UserIdCause(), new ParametersAction(new BooleanParameterValue("force", force)))
+        } else {
+            ParameterizedJobMixIn.scheduleBuild2(p, 1, new ParametersAction(new BooleanParameterValue("force", force)), new CauseAction(new UserIdCause()))
+        }
     } else {
         p.scheduleBuild()
     }

@@ -1,6 +1,6 @@
 # generated from @template_name
 
-@{os_code_name = 'focal'}@
+@{os_code_name = 'noble'}@
 FROM ubuntu:@os_code_name
 
 VOLUME ["/var/cache/apt/archives"]
@@ -40,8 +40,8 @@ RUN echo "@today_str"
     os_code_name=os_code_name,
 ))@
 
-RUN python3 -u /tmp/wrapper_scripts/apt.py update-install-clean -q -y python3-empy python3-pip python3-rosdistro-modules python3-yaml
-RUN pip3 install jenkinsapi
+RUN python3 -u /tmp/wrapper_scripts/apt.py update-install-clean -q -y python3-empy python3-pip python3-rosdistro-modules python3-setuptools python3-yaml
+RUN pip3 install --break-system-packages jenkinsapi
 
 USER buildfarm
 ENTRYPOINT ["sh", "-c"]

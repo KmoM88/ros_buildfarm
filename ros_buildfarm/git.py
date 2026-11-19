@@ -23,7 +23,8 @@ from ros_buildfarm import __version__
 from ros_buildfarm.common import find_executable
 
 FALLBACK_REPOSITORY_URL = \
-    'https://github.com/ros-infrastructure/ros_buildfarm.git'
+    'https://github.com/KmoM88/ros_buildfarm.git'
+FALLBACK_REPOSITORY_VERSION = 'rossif/lyrical-pipelines-iter1'
 
 
 def get_repository():
@@ -32,38 +33,45 @@ def get_repository():
         'version continues to work correctly when being used outside of a ' + \
         'git working copy (e.g. after being installed or from a tarball)'
 
-    # get repository url from git or fallback to hard coded value
+    # get repository url from environment, git, or fallback to hard coded value
     basepath = os.path.dirname(os.path.dirname(__file__))
-    url = _get_git_repository_remote_origin(basepath)
+    env_url = os.environ.get('ROS_BUILDFARM_REPOSITORY_URL')
+    url = env_url or _get_git_repository_remote_origin(basepath)
     if url is None:
         url = FALLBACK_REPOSITORY_URL
 
     prefix_mapping = {
         'git@github.com:': 'https://github.com/',
     }
-    for k, v in prefix_mapping.items():
-        if url.startswith(k):
-            url = v + url[len(k):]
+    if not env_url:
+        for k, v in prefix_mapping.items():
+            if url.startswith(k):
+                url = v + url[len(k):]
 
-    if url != FALLBACK_REPOSITORY_URL:
+    if not env_url and url != FALLBACK_REPOSITORY_URL:
         print(msg1 %
               ("url '%s'" % url, "fallback url '%s' defined in '%s'" %
                (FALLBACK_REPOSITORY_URL, os.path.abspath(__file__))),
               file=sys.stderr)
         print(msg2 % 'fallback url', file=sys.stderr)
 
-    # get repository version from git, PR branch or fallback to version string
-    version = _get_git_repository_version(basepath)
+    # get repository version from environment, git, PR branch, or fallback
+    env_version = os.environ.get('ROS_BUILDFARM_REPOSITORY_VERSION')
+    version = env_version or _get_git_repository_version(basepath)
     version_number, repository_version = _get_version_parts()
     pr_branch = os.environ.get('ROS_BUILDFARM_PULL_REQUEST_BRANCH')
     if version is None:
         if pr_branch is not None:
             version = pr_branch
+        elif FALLBACK_REPOSITORY_VERSION:
+            version = FALLBACK_REPOSITORY_VERSION
         elif repository_version is not None:
             version = repository_version
         else:
             version = version_number
-    elif version not in [version_number, repository_version]:
+    elif not env_version and version not in [
+        version_number, repository_version, FALLBACK_REPOSITORY_VERSION
+    ]:
         print(msg1 %
               ("version '%s'" % version,
                "Python package version '%s'" % __version__), file=sys.stderr)

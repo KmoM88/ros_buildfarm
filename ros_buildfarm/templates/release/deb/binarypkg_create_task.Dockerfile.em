@@ -110,6 +110,7 @@ cmds.append(
     ' --env-vars ' + ' '.join(build_environment_variables) +
     ' --dockerfile-dir ' + dockerfile_dir +
     (' --skip-tests' if skip_tests else '') +
-    (' --docker-base-image-override ' + docker_base_image_override if vars().get('docker_base_image_override') else ''))
+    (' --docker-base-image-override ' + docker_base_image_override if vars().get('docker_base_image_override') else '') +
+    (' --prebaked-base-image' if vars().get('prebaked_base_image') else ''))
 }@
 CMD ["@(' && '.join(cmds))"]

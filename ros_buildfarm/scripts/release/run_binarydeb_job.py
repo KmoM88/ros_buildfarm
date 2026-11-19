@@ -28,6 +28,7 @@ from ros_buildfarm.argument import add_argument_env_vars
 from ros_buildfarm.argument import add_argument_os_code_name
 from ros_buildfarm.argument import add_argument_os_name
 from ros_buildfarm.argument import add_argument_package_name
+from ros_buildfarm.argument import add_argument_prebaked_base_image
 from ros_buildfarm.argument import add_argument_rosdistro_index_url
 from ros_buildfarm.argument import add_argument_rosdistro_name
 from ros_buildfarm.argument import add_argument_skip_download_sourcepkg
@@ -57,6 +58,7 @@ def main(argv=sys.argv[1:]):
     add_argument_env_vars(parser)
     add_argument_skip_tests(parser)
     add_argument_docker_base_image_override(parser)
+    add_argument_prebaked_base_image(parser)
     args = parser.parse_args(argv)
 
     data = copy.deepcopy(args.__dict__)

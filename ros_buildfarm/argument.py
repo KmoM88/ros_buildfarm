@@ -466,6 +466,13 @@ def add_argument_docker_base_image_override(parser):
         help='Prefix for the docker image (e.g. "osrf/" or "arm64v8/")')
 
 
+def add_argument_prebaked_base_image(parser):
+    parser.add_argument(
+        '--prebaked-base-image', action='store_true',
+        help='Assume base image already contains buildfarm user, locale, '
+             'APT repositories, wrapper scripts, and base tools.')
+
+
 def check_len_action(minargs, maxargs):
     class CheckLength(argparse.Action):
 

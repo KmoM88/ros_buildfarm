@@ -13,6 +13,7 @@ VOLUME ["/var/cache/apt/archives"]
 
 ENV DEBIAN_FRONTEND noninteractive
 
+@[if not vars().get('prebaked_base_image')]@
 @(TEMPLATE(
     'snippet/old_release_set.Dockerfile.em',
     os_name=os_name,
@@ -80,6 +81,7 @@ RUN . /etc/os-release && test "$VERSION_ID" = "20.04" && test "$(uname -m)" = "a
     os_name=os_name,
     os_code_name=os_code_name,
 ))@
+@[end if]@
 
 @(TEMPLATE(
     'snippet/set_environment_variables.Dockerfile.em',

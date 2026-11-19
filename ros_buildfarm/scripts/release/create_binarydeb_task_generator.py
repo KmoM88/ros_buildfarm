@@ -30,6 +30,7 @@ from ros_buildfarm.argument import add_argument_env_vars
 from ros_buildfarm.argument import add_argument_os_code_name
 from ros_buildfarm.argument import add_argument_os_name
 from ros_buildfarm.argument import add_argument_package_name
+from ros_buildfarm.argument import add_argument_prebaked_base_image
 from ros_buildfarm.argument import add_argument_rosdistro_index_url
 from ros_buildfarm.argument import add_argument_rosdistro_name
 from ros_buildfarm.argument import add_argument_skip_tests
@@ -58,6 +59,7 @@ def main(argv=sys.argv[1:]):
     add_argument_env_vars(parser)
     add_argument_skip_tests(parser)
     add_argument_docker_base_image_override(parser)
+    add_argument_prebaked_base_image(parser)
     args = parser.parse_args(argv)
 
     debian_package_name = get_os_package_name(
@@ -115,6 +117,7 @@ def main(argv=sys.argv[1:]):
         'package_name': args.package_name,
         'binarypkg_dir': args.binarypkg_dir,
         'docker_base_image_override': args.docker_base_image_override,
+        'prebaked_base_image': args.prebaked_base_image,
     }
     create_dockerfile(
         'release/deb/binarypkg_task.Dockerfile.em', data, args.dockerfile_dir)

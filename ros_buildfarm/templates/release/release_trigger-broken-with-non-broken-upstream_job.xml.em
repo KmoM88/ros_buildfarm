@@ -38,6 +38,9 @@
   </triggers>
   <concurrentBuild>false</concurrentBuild>
   <builders>
+@{
+code = FILE('snippet/check_recursive_upstream_projects.groovy')
+}@
 @(SNIPPET(
     'builder_system-groovy',
     command=
@@ -45,7 +48,11 @@
 import java.util.regex.Pattern
 
 import hudson.model.Cause
+import hudson.model.Job
 import hudson.model.Result
+import jenkins.model.ParameterizedJobMixIn
+
+%s
 
 println "Triggering builds for the following jobs:"
 
@@ -68,7 +75,8 @@ pattern_src = Pattern.compile(source_prefix + "_[^_]+__.+__.+__source")
 pattern_bin = Pattern.compile(binary_prefix + "_[^_]+__.+__.+__binary")
 //                            1............    2.....3...4...5.......
 
-for (p in hudson.model.Hudson.instance.projects) {
+for (p in hudson.model.Hudson.instance.getAllItems(Job)) {
+    if (!(p instanceof ParameterizedJobMixIn.ParameterizedJob)) continue
     if (!pattern_src.matcher(p.name).matches() && !pattern_bin.matcher(p.name).matches()) continue
     if (p.isDisabled()) continue
     if (p.isInQueue() || p.isBuilding()) continue
@@ -86,7 +94,7 @@ for (p in hudson.model.Hudson.instance.projects) {
 
     // skip if any upstream job is broken
     any_upstream_broken = false
-    for (u in p.getUpstreamProjects()) {
+    for (u in get_upstream_projects(p)) {
         any_upstream_broken = true
         if (u.getNextBuildNumber() > 1) {
             def lb = u.getLastBuild()
@@ -110,7 +118,7 @@ for (p in hudson.model.Hudson.instance.projects) {
         println "  FAILED to schedule build"
     }
 }
-""" % (source_project_name_prefix, binary_project_name_prefix),
+""" % (code, source_project_name_prefix, binary_project_name_prefix),
     script_file=None,
 ))@
   </builders>

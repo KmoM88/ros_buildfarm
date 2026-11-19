@@ -51,6 +51,9 @@ class JenkinsProxy(Jenkins):
             self.__jobs = super(JenkinsProxy, self).jobs
         return self.__jobs
 
+    def reset_jobs_cache(self):
+        self.__jobs = None
+
 
 _cached_jenkins = None
 
@@ -178,6 +181,36 @@ def _get_view_type(view_config):
 _cached_jobs = {}
 
 
+def _invalidate_jobs_cache(jenkins, job_name):
+    if hasattr(jenkins, 'reset_jobs_cache'):
+        jenkins.reset_jobs_cache()
+        return
+    jobs = getattr(jenkins, 'jobs', None)
+    if isinstance(jobs, dict):
+        jobs.pop(job_name, None)
+    elif jobs is not None and hasattr(jobs, '_data'):
+        jobs._data = []
+
+
+def _purge_cached_job_configs(job_name):
+    for cached_key in [k for k in _cached_jobs if k[0] == job_name]:
+        del _cached_jobs[cached_key]
+
+
+def _recreate_job_on_root_change(
+        jenkins, job, job_name, job_config,
+        remote_tag, new_tag, dry_run, dry_run_suffix):
+    print(
+        "Recreating job '%s' because XML root changed ('%s' -> '%s')%s" %
+        (job_name, remote_tag, new_tag, dry_run_suffix))
+    if not dry_run:
+        jenkins.delete_job(job_name)
+        _invalidate_jobs_cache(jenkins, job_name)
+        job = jenkins.create_job(job_name, job_config)
+        _purge_cached_job_configs(job_name)
+    return job
+
+
 def configure_job(jenkins, job_name, job_config, view=None, dry_run=False, context_lines=0):
     key = (job_name, job_config, view, dry_run)
     if key in _cached_jobs:
@@ -194,10 +227,15 @@ def configure_job(jenkins, job_name, job_config, view=None, dry_run=False, conte
         else:
             job = jenkins.get_job(job_name)
             remote_job_config = job.get_config()
-            diff = _diff_configs(remote_job_config, job_config, context_lines)
-            # evaluate generator since it might yield no values
-            diff = list(diff)
-            if not diff:
+            remote_tag = ElementTree.fromstring(remote_job_config).tag
+            new_tag = ElementTree.fromstring(job_config).tag
+            diff = [] if remote_tag != new_tag else list(
+                _diff_configs(remote_job_config, job_config, context_lines))
+            if remote_tag != new_tag:
+                job = _recreate_job_on_root_change(
+                    jenkins, job, job_name, job_config,
+                    remote_tag, new_tag, dry_run, dry_run_suffix)
+            elif not diff:
                 print("Skipped '%s' because the config is the same%s" %
                       (job_name, dry_run_suffix))
             else:
@@ -208,6 +246,8 @@ def configure_job(jenkins, job_name, job_config, view=None, dry_run=False, conte
                 print('   ', '>>>')
                 response_text = job.update_config(job_config) \
                     if not dry_run else None
+                if not dry_run:
+                    _purge_cached_job_configs(job_name)
                 if response_text:
                     print('Failed to update job config:\n%s' % response_text)
                     raise RuntimeError()
