@@ -202,8 +202,34 @@ def expand_template(
 def _add_helper_functions(data):
     data['FILE'] = _get_file_content
     data['ESCAPE'] = _escape_value
+    data['GROOVY'] = _to_groovy_literal
     data['SNIPPET'] = _expand_snippet
     data['TEMPLATE'] = _expand_template
+
+
+def _to_groovy_literal(value):
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        escaped = (
+            value.replace('\\', '\\\\')
+            .replace("'", "\\'")
+            .replace('\r', '\\r')
+            .replace('\n', '\\n')
+        )
+        return "'%s'" % escaped
+    if isinstance(value, (list, tuple)):
+        return '[' + ', '.join(_to_groovy_literal(v) for v in value) + ']'
+    if isinstance(value, dict):
+        if not value:
+            return '[:]'
+        items = ['  %s: %s' % (k, _to_groovy_literal(v)) for k, v in value.items()]
+        return '[\n' + ',\n'.join(items) + '\n]'
+    raise TypeError('Unsupported Groovy literal type: %r' % (type(value),))
 
 
 def _get_file_content(filename):
