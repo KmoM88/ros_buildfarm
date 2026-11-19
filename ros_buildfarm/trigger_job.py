@@ -68,6 +68,8 @@ def trigger_release_jobs(
 
     pkg_names = dist_file.release_packages.keys()
     pkg_names = build_file.filter_packages(pkg_names)
+    if build_file.slice_packages:
+        pkg_names &= set(build_file.slice_packages)
 
     triggered_jobs = []
     skipped_jobs = []

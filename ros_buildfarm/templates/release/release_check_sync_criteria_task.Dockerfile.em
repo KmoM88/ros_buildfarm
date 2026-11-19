@@ -1,6 +1,6 @@
 # generated from @template_name
 
-@{task_os_code_name = 'focal'}@
+@{task_os_code_name = os_code_name}@
 FROM ubuntu:@task_os_code_name
 
 VOLUME ["/var/cache/apt/archives"]

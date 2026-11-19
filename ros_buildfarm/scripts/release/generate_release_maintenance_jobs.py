@@ -100,7 +100,8 @@ def main(argv=sys.argv[1:]):
 def get_reconfigure_jobs_job_config(args, config, build_file):
     template_name = 'release/release_reconfigure-jobs_job.xml.em'
     return _get_job_config(
-        args, config, build_file.notify_emails, template_name)
+        args, config, build_file.notify_emails, template_name,
+        build_file=build_file)
 
 
 def get_trigger_jobs_job_config(args, config, build_file):
@@ -108,7 +109,7 @@ def get_trigger_jobs_job_config(args, config, build_file):
     data = {'missed_jobs': False}
     return _get_job_config(
         args, config, build_file.notify_emails, template_name,
-        additional_data=data)
+        additional_data=data, build_file=build_file)
 
 
 def get_trigger_missed_jobs_job_config(args, config, build_file):
@@ -116,7 +117,7 @@ def get_trigger_missed_jobs_job_config(args, config, build_file):
     data = {'missed_jobs': True}
     return _get_job_config(
         args, config, build_file.notify_emails, template_name,
-        additional_data=data)
+        additional_data=data, build_file=build_file)
 
 
 def get_import_upstream_job_config(args, config, build_file, package_format):
@@ -127,7 +128,7 @@ def get_import_upstream_job_config(args, config, build_file, package_format):
     }
     return _get_job_config(
         args, config, config.notify_emails, template_name,
-        additional_data=data)
+        additional_data=data, build_file=build_file)
 
 
 def _get_all_import_targets(config, package_format):
@@ -152,7 +153,8 @@ def _get_all_import_targets(config, package_format):
 
 
 def _get_job_config(
-    args, config, recipients, template_name, additional_data=None
+    args, config, recipients, template_name, additional_data=None,
+    build_file=None
 ):
     repository_args, script_generating_key_files = \
         get_repositories_and_script_generating_key_files(config=config)
@@ -166,7 +168,7 @@ def _get_job_config(
         'release_build_name': args.release_build_name,
         'repository_args': repository_args,
 
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
 
         'credentials_src': os.path.join(
             '~', os.path.dirname(get_relative_credential_path())),

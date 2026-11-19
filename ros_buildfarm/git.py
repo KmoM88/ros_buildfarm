@@ -27,15 +27,18 @@ FALLBACK_REPOSITORY_URL = \
 FALLBACK_REPOSITORY_VERSION = 'rossif/lyrical-pipelines-iter1'
 
 
-def get_repository():
+def get_repository(build_file=None):
     msg1 = 'The git repository %s is different than the %s'
     msg2 = 'You might want to update the %s to ensure that your forked ' + \
         'version continues to work correctly when being used outside of a ' + \
         'git working copy (e.g. after being installed or from a tarball)'
 
-    # get repository url from environment, git, or fallback to hard coded value
+    # get repository url from build_file, environment, git, or fallback
     basepath = os.path.dirname(os.path.dirname(__file__))
-    env_url = os.environ.get('ROS_BUILDFARM_REPOSITORY_URL')
+    env_url = (
+        getattr(build_file, 'ros_buildfarm_repository_url', None)
+        or os.environ.get('ROS_BUILDFARM_REPOSITORY_URL')
+    )
     url = env_url or _get_git_repository_remote_origin(basepath)
     if url is None:
         url = FALLBACK_REPOSITORY_URL
@@ -55,8 +58,11 @@ def get_repository():
               file=sys.stderr)
         print(msg2 % 'fallback url', file=sys.stderr)
 
-    # get repository version from environment, git, PR branch, or fallback
-    env_version = os.environ.get('ROS_BUILDFARM_REPOSITORY_VERSION')
+    # get repository version from build_file, environment, git, PR branch, or fallback
+    env_version = (
+        getattr(build_file, 'ros_buildfarm_repository_version', None)
+        or os.environ.get('ROS_BUILDFARM_REPOSITORY_VERSION')
+    )
     version = env_version or _get_git_repository_version(basepath)
     version_number, repository_version = _get_version_parts()
     pr_branch = os.environ.get('ROS_BUILDFARM_PULL_REQUEST_BRANCH')

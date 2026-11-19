@@ -192,11 +192,17 @@ def configure_release_jobs(
 
     other_build_files = [v for k, v in build_files.items() if k != release_build_name]
 
+    selected_pkg_names = (
+        whitelist_package_names
+        if whitelist_package_names is not None
+        else build_file.slice_packages
+    )
+    enabled_pkg_names = []
     all_source_job_names = []
     all_binary_job_names = []
     for pkg_name in [p.name for _, p in ordered_pkg_tuples]:
-        if whitelist_package_names:
-            if pkg_name not in whitelist_package_names:
+        if selected_pkg_names:
+            if pkg_name not in selected_pkg_names:
                 print("Skipping package '%s' not in the explicitly passed list" %
                       pkg_name, file=sys.stderr)
                 continue
@@ -217,6 +223,8 @@ def configure_release_jobs(
             print(("Skipping package '%s' in repository '%s': no release " +
                    "version") % (pkg_name, repo_name), file=sys.stderr)
             continue
+        if not is_disabled:
+            enabled_pkg_names.append(pkg_name)
 
         for os_name, os_code_name in platforms:
             other_build_files_same_platform = []
@@ -253,6 +261,14 @@ def configure_release_jobs(
                         all_job_configs[binary_job_name] = job_configs[binary_job_name]
             except JobValidationError as e:
                 print(e.message, file=sys.stderr)
+
+    if build_file.pipeline_jobs and platforms:
+        utility_jobs = configure_pipeline_utility_jobs(
+            config, build_file, rosdistro_name, release_build_name,
+            platforms, cached_pkgs, pkg_names, enabled_pkg_names,
+            jenkins=jenkins, dry_run=dry_run)
+        if not isinstance(jenkins, JenkinsProxy):
+            all_job_configs.update(utility_jobs)
 
     groovy_data['expected_num_jobs'] = len(all_job_configs)
     groovy_data['job_prefixes_and_names'] = {}
@@ -419,6 +435,8 @@ def configure_release_job(
     if build_file is None:
         build_files = get_release_build_files(config, rosdistro_name)
         build_file = build_files[release_build_name]
+    if docker_base_image_override is None:
+        docker_base_image_override = build_file.docker_base_image_override
     if generate_import_package_job is None:
         generate_import_package_job = package_format_mapping[os_name] not in ('rpm',)
 
@@ -464,8 +482,9 @@ def configure_release_job(
     if cached_pkgs is None and \
             (build_file.notify_maintainers or
              build_file.abi_incompatibility_assumed):
+        cache_targets = pkg_names if build_file.slice_packages else [pkg_name]
         cached_pkgs = _get_and_parse_distribution_cache(
-            index, rosdistro_name, [pkg_name],
+            index, rosdistro_name, cache_targets,
             include_test_deps=build_file.include_test_dependencies,
             include_group_deps=build_file.include_group_dependencies,
             disable_groups_workaround=build_file.include_group_dependencies)
@@ -537,18 +556,23 @@ def configure_release_job(
     skip_rosdep_keys = None
     dependency_names = []
     if build_file.abi_incompatibility_assumed:
-        dependency_names = get_direct_dependencies(
+        direct_deps = get_direct_dependencies(
             pkg_name, cached_pkgs, pkg_names,
             include_test_deps=build_file.include_test_dependencies,
             include_group_deps=build_file.include_group_dependencies)
         # if dependencies are not yet available in rosdistro cache
         # skip binary jobs
-        if dependency_names is None:
+        if direct_deps is None:
             print(("Skipping binary jobs for package '%s' because it is not " +
                    "yet in the rosdistro cache") % pkg_name, file=sys.stderr)
             return source_job_names, binary_job_names, job_configs
-        skip_rosdep_keys = sorted(dependency_names.intersection(build_file.package_ignore_list))
-        dependency_names.difference_update(build_file.package_ignore_list)
+        skip_rosdep_keys = sorted(direct_deps.intersection(build_file.package_ignore_list))
+        if build_file.slice_packages:
+            dependency_names = _get_induced_slice_dependencies(
+                pkg_name, cached_pkgs, pkg_names,
+                set(build_file.slice_packages), build_file)
+        else:
+            dependency_names = direct_deps.difference(build_file.package_ignore_list)
 
     # binarydeb jobs
     for arch in build_file.targets[os_name][os_code_name]:
@@ -563,7 +587,7 @@ def configure_release_job(
             get_binarydeb_job_name(
                 rosdistro_name, release_build_name,
                 dependency_name, os_name, os_code_name, arch)
-            for dependency_name in dependency_names]
+            for dependency_name in sorted(dependency_names)]
 
         job_config = _get_binarydeb_job_config(
             config_url, rosdistro_name, release_build_name,
@@ -610,10 +634,16 @@ def _get_sourcedeb_job_config(
         pkg_name, repo_name, release_repository, cached_pkgs=None,
         is_disabled=False, other_build_files_same_platform=None):
     package_format = package_format_mapping[os_name]
-    template_name = 'release/%s/sourcepkg_job.xml.em' % package_format
+    template_file = (
+        'sourcepkg_pipeline_job.xml.em'
+        if build_file.pipeline_jobs
+        else 'sourcepkg_job.xml.em'
+    )
+    template_name = 'release/%s/%s' % (package_format, template_file)
 
     repository_args, script_generating_key_files = \
         get_repositories_and_script_generating_key_files(build_file=build_file)
+    repository_urls, repository_keys = _dedupe_repositories(build_file=build_file)
 
     sourcedeb_files = [
         'sourcedeb/*.debian.tar.gz',
@@ -654,9 +684,11 @@ def _get_sourcedeb_job_config(
 
         'disabled': is_disabled,
 
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
 
         'script_generating_key_files': script_generating_key_files,
+        'repository_urls': repository_urls,
+        'repository_keys': repository_keys,
 
         'rosdistro_index_url': config.rosdistro_index_url,
         'rosdistro_name': rosdistro_name,
@@ -684,6 +716,8 @@ def _get_sourcedeb_job_config(
         'credential_id': build_file.upload_credential_id,
 
         'git_ssh_credential_id': config.git_ssh_credential_id,
+        'pipeline_shared_library': build_file.pipeline_shared_library,
+        'docker_mode': build_file.docker_mode,
     }
     job_config = expand_template(template_name, job_data)
     return job_config
@@ -697,11 +731,19 @@ def _get_binarydeb_job_config(
         is_disabled=False,
         docker_base_image_override=None,
         skip_rosdep_keys=None):
+    if docker_base_image_override is None:
+        docker_base_image_override = build_file.docker_base_image_override
     package_format = package_format_mapping[os_name]
-    template_name = 'release/%s/binarypkg_job.xml.em' % package_format
+    template_file = (
+        'binarypkg_pipeline_job.xml.em'
+        if build_file.pipeline_jobs
+        else 'binarypkg_job.xml.em'
+    )
+    template_name = 'release/%s/%s' % (package_format, template_file)
 
     repository_args, script_generating_key_files = \
         get_repositories_and_script_generating_key_files(build_file=build_file)
+    repository_urls, repository_keys = _dedupe_repositories(build_file=build_file)
     repository_args.append(
         '--target-repository ' + build_file.target_repository)
 
@@ -738,9 +780,12 @@ def _get_binarydeb_job_config(
 
         'upstream_projects': upstream_job_names,
 
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
 
         'script_generating_key_files': script_generating_key_files,
+        'repository_urls': repository_urls,
+        'repository_keys': repository_keys,
+        'target_repository': build_file.target_repository,
 
         'rosdistro_index_url': config.rosdistro_index_url,
         'rosdistro_name': rosdistro_name,
@@ -777,6 +822,10 @@ def _get_binarydeb_job_config(
         'shared_ccache': build_file.shared_ccache,
 
         'docker_base_image_override': docker_base_image_override,
+        'prebaked_base_image': build_file.prebaked_base_image,
+        'pipeline_shared_library': build_file.pipeline_shared_library,
+        'orchestration_mode': build_file.orchestration_mode,
+        'docker_mode': build_file.docker_mode,
     }
     job_config = expand_template(template_name, job_data)
     return job_config
@@ -821,7 +870,7 @@ def _get_import_package_job_config(build_file, package_format):
         'target_queue': build_file.target_queue,
         'abi_incompatibility_assumed': build_file.abi_incompatibility_assumed,
         'notify_emails': build_file.notify_emails,
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
     }
     job_config = expand_template(template_name, job_data)
     return job_config
@@ -870,7 +919,7 @@ def _get_sync_packages_to_testing_job_config(
         get_repositories_and_script_generating_key_files(config=config)
 
     job_data = {
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
 
         'script_generating_key_files': script_generating_key_files,
 
@@ -944,7 +993,7 @@ def _get_sync_packages_to_main_job_config(
 
     template_name = 'release/%s/sync_packages_to_main_job.xml.em' % package_format
     job_data = {
-        'ros_buildfarm_repository': get_repository(),
+        'ros_buildfarm_repository': get_repository(build_file=build_file),
         'rosdistro_name': rosdistro_name,
 
         'deb_sync_to_main_job_name': get_sync_packages_to_main_job_name(rosdistro_name, 'deb'),
@@ -954,6 +1003,140 @@ def _get_sync_packages_to_main_job_config(
     }
     job_config = expand_template(template_name, job_data)
     return job_config
+
+
+def _pkg_direct_deps(pkg, cached_pkgs, all_pkg_names, build_file):
+    return get_direct_dependencies(
+        pkg, cached_pkgs, all_pkg_names,
+        include_test_deps=build_file.include_test_dependencies,
+        include_group_deps=build_file.include_group_dependencies)
+
+
+def _dedupe_repositories(config=None, build_file=None):
+    urls, keys, sources = [], [], []
+    if config and 'debian_repositories' in config.prerequisites:
+        sources.append((
+            config.prerequisites['debian_repositories'],
+            config.prerequisites.get('debian_repository_keys', []),
+        ))
+    if build_file:
+        sources.append((build_file.repository_urls, build_file.repository_keys))
+    for src_urls, src_keys in sources:
+        for i, url in enumerate(src_urls):
+            if url not in urls:
+                urls.append(url)
+                keys.append(src_keys[i])
+    return urls, keys
+
+
+def _get_induced_slice_dependencies(
+        pkg_name, cached_pkgs, all_pkg_names, slice_set, build_file):
+    visited_ext, induced = set(), set()
+    ignore_set = set(build_file.package_ignore_list)
+    stack = list(_pkg_direct_deps(pkg_name, cached_pkgs, all_pkg_names, build_file) or ())
+    while stack:
+        dep = stack.pop()
+        if dep in ignore_set or dep == pkg_name:
+            continue
+        if dep in slice_set:
+            induced.add(dep)
+        elif dep not in visited_ext:
+            visited_ext.add(dep)
+            stack.extend(_pkg_direct_deps(dep, cached_pkgs, all_pkg_names, build_file) or ())
+    return induced
+
+
+def _compute_wave_tiers(pkg_list, pkg_deps):
+    active_set, depths = set(pkg_list), {}
+
+    def _depth(pkg, visiting=frozenset()):
+        if pkg not in depths:
+            deps = [d for d in pkg_deps.get(pkg, ()) if d in active_set and d not in visiting]
+            depths[pkg] = 0 if not deps else 1 + max(_depth(d, visiting | {pkg}) for d in deps)
+        return depths[pkg]
+
+    max_wave = max((_depth(p) for p in pkg_list), default=-1)
+    return [[p for p in pkg_list if depths[p] == w] for w in range(max_wave + 1)]
+
+
+def configure_pipeline_utility_jobs(
+        config, build_file, rosdistro_name, release_build_name,
+        platforms, cached_pkgs, all_pkg_names, enabled_pkg_names,
+        jenkins=False, dry_run=False):
+    os_name, os_code_name = platforms[0]
+    arch = sorted(build_file.targets[os_name][os_code_name])[0]
+    bf_repo = get_repository(build_file=build_file)
+    repo_urls, repo_keys = _dedupe_repositories(config=config, build_file=build_file)
+    if build_file.slice_packages:
+        slice_set = set(build_file.slice_packages)
+        pkg_deps = {
+            p: _get_induced_slice_dependencies(p, cached_pkgs, all_pkg_names, slice_set, build_file)
+            for p in enabled_pkg_names
+        }
+    else:
+        enabled_set = set(enabled_pkg_names)
+        pkg_deps = {
+            p: (_pkg_direct_deps(p, cached_pkgs, all_pkg_names, build_file) or set()) & enabled_set
+            for p in enabled_pkg_names
+        }
+    wave_pkgs = _compute_wave_tiers(enabled_pkg_names, pkg_deps)
+    source_jobs = [
+        get_sourcedeb_job_name(rosdistro_name, release_build_name, p, os_name, os_code_name)
+        for w in wave_pkgs for p in w
+    ]
+    binary_waves = [
+        [get_binarydeb_job_name(rosdistro_name, release_build_name, p, os_name, os_code_name, arch)
+         for p in w]
+        for w in wave_pkgs
+    ]
+    sync_job_name = get_sync_packages_to_testing_job_name(rosdistro_name, os_name, os_code_name, arch)
+    job_prefix = get_release_job_prefix(rosdistro_name, release_build_name)
+    base_cfg = {
+        'rosdistroName': rosdistro_name,
+        'releaseBuildName': release_build_name,
+        'osName': os_name,
+        'osCodeName': os_code_name,
+        'arch': arch,
+    }
+    prepare_cfg = dict(base_cfg, **{
+        'rosdistroIndexUrl': config.rosdistro_index_url,
+        'repositoryUrls': repo_urls,
+        'repositoryKeys': repo_keys,
+        'targetRepository': build_file.target_repository,
+        'rosBuildfarmRepoUrl': bf_repo.url,
+        'rosBuildfarmRepoVersion': bf_repo.version,
+        'taskGeneratorImage': 'registry:5000/ros-buildfarm/task-generator-%s-%s:%s' % (
+            rosdistro_name, arch, os_code_name),
+        'binarydebBaseImage': 'registry:5000/ros-buildfarm/binarydeb-base-%s-%s:%s' % (
+            rosdistro_name, arch, os_code_name),
+        'dockerBaseImageOverride': build_file.docker_base_image_override,
+        'nodeLabel': get_node_label(build_file.jenkins_binary_job_label, 'buildagent'),
+        'timeoutMinutes': build_file.jenkins_binary_job_timeout or 60,
+    })
+    wave_cfg = dict(base_cfg, **{
+        'orchestrationMode': build_file.orchestration_mode,
+        'dockerMode': build_file.docker_mode,
+        'sourceJobs': source_jobs,
+        'binaryWaves': binary_waves,
+        'syncJobName': sync_job_name,
+    })
+    specs = [
+        ('%s_prepare-base-images' % job_prefix, 30, 'rosPrepareBaseImages', prepare_cfg),
+        ('%s_pipeline-trigger-wave' % job_prefix, 35, 'rosReleaseWaveOrchestrator', wave_cfg),
+    ]
+    configured = OrderedDict()
+    for job_name, priority, entrypoint_name, entrypoint_cfg in specs:
+        job_xml = expand_template('release/pipeline_utility_job.xml.em', {
+            'job_priority': priority,
+            'pipeline_shared_library': build_file.pipeline_shared_library,
+            'entrypoint_name': entrypoint_name,
+            'entrypoint_config': entrypoint_cfg,
+        })
+        if isinstance(jenkins, object) and jenkins is not False:
+            from ros_buildfarm.jenkins import configure_job
+            configure_job(jenkins, job_name, job_xml, dry_run=dry_run)
+        configured[job_name] = job_xml
+    return configured
 
 
 def _get_all_sync_targets(config, rosdistro_name, package_format):
