@@ -481,8 +481,13 @@ def configure_release_job(
 
     if cached_pkgs is None and \
             (build_file.notify_maintainers or
-             build_file.abi_incompatibility_assumed):
-        cache_targets = pkg_names if build_file.slice_packages else [pkg_name]
+             build_file.abi_incompatibility_assumed or
+             build_file.docker_mode == 'ament-base'):
+        cache_targets = (
+            pkg_names
+            if (build_file.slice_packages or build_file.docker_mode == 'ament-base')
+            else [pkg_name]
+        )
         cached_pkgs = _get_and_parse_distribution_cache(
             index, rosdistro_name, cache_targets,
             include_test_deps=build_file.include_test_dependencies,
@@ -596,7 +601,8 @@ def configure_release_job(
             cached_pkgs=cached_pkgs, upstream_job_names=upstream_job_names,
             is_disabled=is_disabled,
             docker_base_image_override=docker_base_image_override,
-            skip_rosdep_keys=skip_rosdep_keys)
+            skip_rosdep_keys=skip_rosdep_keys,
+            all_pkg_names=pkg_names)
         # jenkinsapi.jenkins.Jenkins evaluates to false if job count is zero
         if isinstance(jenkins, object) and jenkins is not False:
             configure_job(jenkins, job_name, job_config, dry_run=dry_run)
@@ -730,9 +736,18 @@ def _get_binarydeb_job_config(
         cached_pkgs=None, upstream_job_names=None,
         is_disabled=False,
         docker_base_image_override=None,
-        skip_rosdep_keys=None):
+        skip_rosdep_keys=None,
+        all_pkg_names=None):
     if docker_base_image_override is None:
         docker_base_image_override = build_file.docker_base_image_override
+    if (
+        build_file.docker_mode == 'ament-base'
+        and pkg_name != 'ament_cmake'
+        and _depends_on_ament_cmake(pkg_name, cached_pkgs, all_pkg_names, build_file)
+    ):
+        docker_base_image_override = (
+            'registry:5000/ros-buildfarm/ament-base-%s-%s' % (rosdistro_name, arch)
+        )
     package_format = package_format_mapping[os_name]
     template_file = (
         'binarypkg_pipeline_job.xml.em'
@@ -1046,6 +1061,25 @@ def _get_induced_slice_dependencies(
     return induced
 
 
+def _depends_on_ament_cmake(pkg_name, cached_pkgs, all_pkg_names, build_file):
+    if not cached_pkgs or pkg_name == 'ament_cmake':
+        return False
+    if all_pkg_names is None:
+        all_pkg_names = cached_pkgs.keys()
+    visited = {pkg_name}
+    ignore_set = set(build_file.package_ignore_list)
+    stack = list(_pkg_direct_deps(pkg_name, cached_pkgs, all_pkg_names, build_file) or ())
+    while stack:
+        dep = stack.pop()
+        if dep in ignore_set or dep in visited:
+            continue
+        if dep == 'ament_cmake':
+            return True
+        visited.add(dep)
+        stack.extend(_pkg_direct_deps(dep, cached_pkgs, all_pkg_names, build_file) or ())
+    return False
+
+
 def _compute_wave_tiers(pkg_list, pkg_deps):
     active_set, depths = set(pkg_list), {}
 
@@ -1091,6 +1125,12 @@ def configure_pipeline_utility_jobs(
     ]
     sync_job_name = get_sync_packages_to_testing_job_name(rosdistro_name, os_name, os_code_name, arch)
     job_prefix = get_release_job_prefix(rosdistro_name, release_build_name)
+    prepare_job_name = '%s_prepare-base-images' % job_prefix
+    ament_wave_index = (
+        next((w for w, pkgs in enumerate(wave_pkgs) if 'ament_cmake' in pkgs), None)
+        if build_file.docker_mode == 'ament-base'
+        else None
+    )
     base_cfg = {
         'rosdistroName': rosdistro_name,
         'releaseBuildName': release_build_name,
@@ -1109,28 +1149,45 @@ def configure_pipeline_utility_jobs(
             rosdistro_name, arch, os_code_name),
         'binarydebBaseImage': 'registry:5000/ros-buildfarm/binarydeb-base-%s-%s:%s' % (
             rosdistro_name, arch, os_code_name),
+        'amentBaseImage': 'registry:5000/ros-buildfarm/ament-base-%s-%s:%s' % (
+            rosdistro_name, arch, os_code_name),
         'dockerBaseImageOverride': build_file.docker_base_image_override,
         'nodeLabel': get_node_label(build_file.jenkins_binary_job_label, 'buildagent'),
         'timeoutMinutes': build_file.jenkins_binary_job_timeout or 60,
     })
+    prepare_params = [
+        {
+            'type': 'boolean',
+            'name': 'ament_only',
+            'description': 'Build and push only the intermediate ament-base image',
+        },
+        {
+            'type': 'boolean',
+            'name': 'skip_cleanup',
+            'description': 'Skip cleanup of build artifacts',
+        },
+    ]
     wave_cfg = dict(base_cfg, **{
         'orchestrationMode': build_file.orchestration_mode,
         'dockerMode': build_file.docker_mode,
         'sourceJobs': source_jobs,
         'binaryWaves': binary_waves,
         'syncJobName': sync_job_name,
+        'prepareBaseImagesJobName': prepare_job_name,
+        'refreshAmentAfterWave': ament_wave_index,
     })
     specs = [
-        ('%s_prepare-base-images' % job_prefix, 30, 'rosPrepareBaseImages', prepare_cfg),
-        ('%s_pipeline-trigger-wave' % job_prefix, 35, 'rosReleaseWaveOrchestrator', wave_cfg),
+        (prepare_job_name, 30, 'rosPrepareBaseImages', prepare_cfg, prepare_params),
+        ('%s_pipeline-trigger-wave' % job_prefix, 35, 'rosReleaseWaveOrchestrator', wave_cfg, None),
     ]
     configured = OrderedDict()
-    for job_name, priority, entrypoint_name, entrypoint_cfg in specs:
+    for job_name, priority, entrypoint_name, entrypoint_cfg, params in specs:
         job_xml = expand_template('release/pipeline_utility_job.xml.em', {
             'job_priority': priority,
             'pipeline_shared_library': build_file.pipeline_shared_library,
             'entrypoint_name': entrypoint_name,
             'entrypoint_config': entrypoint_cfg,
+            'parameters': params,
         })
         if isinstance(jenkins, object) and jenkins is not False:
             from ros_buildfarm.jenkins import configure_job

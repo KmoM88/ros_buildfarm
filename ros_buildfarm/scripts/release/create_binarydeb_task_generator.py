@@ -21,6 +21,7 @@ import sys
 from apt import Cache
 from ros_buildfarm.argument import add_argument_arch
 from ros_buildfarm.argument import add_argument_binarypkg_dir
+from ros_buildfarm.argument import add_argument_buildkit_apt_cache
 from ros_buildfarm.argument import \
     add_argument_distribution_repository_key_files
 from ros_buildfarm.argument import add_argument_distribution_repository_urls
@@ -60,6 +61,7 @@ def main(argv=sys.argv[1:]):
     add_argument_skip_tests(parser)
     add_argument_docker_base_image_override(parser)
     add_argument_prebaked_base_image(parser)
+    add_argument_buildkit_apt_cache(parser)
     args = parser.parse_args(argv)
 
     debian_package_name = get_os_package_name(
@@ -118,9 +120,13 @@ def main(argv=sys.argv[1:]):
         'binarypkg_dir': args.binarypkg_dir,
         'docker_base_image_override': args.docker_base_image_override,
         'prebaked_base_image': args.prebaked_base_image,
+        'buildkit_apt_cache': args.buildkit_apt_cache,
     }
     create_dockerfile(
         'release/deb/binarypkg_task.Dockerfile.em', data, args.dockerfile_dir)
+    build_depends_path = os.path.join(args.dockerfile_dir, 'build_depends.txt')
+    with open(build_depends_path, 'w') as h:
+        h.write('\n'.join(debian_pkg_names) + '\n')
 
     # output hints about necessary volumes to mount
     ros_buildfarm_basepath = os.path.normpath(

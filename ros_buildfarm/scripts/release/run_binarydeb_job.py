@@ -19,6 +19,7 @@ import sys
 from ros_buildfarm.argument import add_argument_append_timestamp
 from ros_buildfarm.argument import add_argument_arch
 from ros_buildfarm.argument import add_argument_binarypkg_dir
+from ros_buildfarm.argument import add_argument_buildkit_apt_cache
 from ros_buildfarm.argument import \
     add_argument_distribution_repository_key_files
 from ros_buildfarm.argument import add_argument_distribution_repository_urls
@@ -59,6 +60,7 @@ def main(argv=sys.argv[1:]):
     add_argument_skip_tests(parser)
     add_argument_docker_base_image_override(parser)
     add_argument_prebaked_base_image(parser)
+    add_argument_buildkit_apt_cache(parser)
     args = parser.parse_args(argv)
 
     data = copy.deepcopy(args.__dict__)

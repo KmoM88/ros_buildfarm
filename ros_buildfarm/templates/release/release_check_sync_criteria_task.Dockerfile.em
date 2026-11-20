@@ -3,8 +3,6 @@
 @{task_os_code_name = os_code_name}@
 FROM ubuntu:@task_os_code_name
 
-VOLUME ["/var/cache/apt/archives"]
-
 ENV DEBIAN_FRONTEND noninteractive
 
 @(TEMPLATE(

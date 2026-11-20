@@ -2,8 +2,6 @@
 
 FROM @os_name:@os_code_name
 
-VOLUME ["/var/cache/apt/archives"]
-
 ENV DEBIAN_FRONTEND noninteractive
 
 @(TEMPLATE(

@@ -23,14 +23,24 @@ end_entries_for_line = int(math.ceil(fold_factor))
 number_of_begin_blocks = int(round((end_entries_for_line - fold_factor) * max_lines))
 switch_index = number_of_begin_blocks * begin_entries_for_line
 
-def get_run_command(indices, dependencies, dependency_versions):
+use_apt_cache = bool(vars().get('buildkit_apt_cache'))
+run_prefix = (
+    'RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked '
+    'rm -f /etc/apt/apt.conf.d/docker-clean && '
+    "printf 'Binary::apt::APT::Keep-Downloaded-Packages \"true\";\\n"
+    "APT::Keep-Downloaded-Packages \"true\";\\n' > /etc/apt/apt.conf.d/keep-cache && "
+    if use_apt_cache else 'RUN '
+)
+apt_subcmd = 'update-install' if use_apt_cache else 'update-install-clean'
+
+def get_run_command(indices, dependencies, dependency_versions, subcmd):
     cmds = []
     names = []
     for index in indices:
       name = dependencies[index]
       cmds.append('echo "{name}: {version}"'.format(name=name, version=dependency_versions[name]))
       names.append(name)
-    cmds.append('python3 -u /tmp/wrapper_scripts/apt.py update-install-clean -q -y -o Debug::pkgProblemResolver=yes {names}'.format(names=' '.join(names)))
+    cmds.append('python3 -u /tmp/wrapper_scripts/apt.py {subcmd} -q -y -o Debug::pkgProblemResolver=yes {names}'.format(subcmd=subcmd, names=' '.join(names)))
     return ' && '.join(cmds)
 }@
 @[if fold_factor > 1]@
@@ -43,7 +53,7 @@ indices = []
 for j in range(begin_entries_for_line):
     indices.append(i + j)
 }@
-RUN @(get_run_command(indices, dependencies, dependency_versions))
+@(run_prefix)@(get_run_command(indices, dependencies, dependency_versions, apt_subcmd))
 @[end for]@
 @[end if]@
 @[if end_entries_for_line]@
@@ -53,6 +63,6 @@ indices = []
 for j in range(end_entries_for_line):
     indices.append(i + j)
 }@
-RUN @(get_run_command(indices, dependencies, dependency_versions))
+@(run_prefix)@(get_run_command(indices, dependencies, dependency_versions, apt_subcmd))
 @[end for]@
 @[end if]@
