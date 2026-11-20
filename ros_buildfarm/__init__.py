@@ -17,4 +17,4 @@
 # same version as in:
 # - setup.py
 # - stdeb.cfg
-__version__ = '4.1.1+rossif.lyrical.pipelines.iter1'
+__version__ = '4.1.1+rossif.lyrical.pipelines.iter2'

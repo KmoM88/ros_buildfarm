@@ -8,8 +8,6 @@
     arch=arch,
 ))@
 
-VOLUME ["/var/cache/apt/archives"]
-
 ENV DEBIAN_FRONTEND noninteractive
 
 @(TEMPLATE(

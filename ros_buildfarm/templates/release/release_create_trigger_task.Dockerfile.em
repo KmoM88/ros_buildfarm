@@ -3,8 +3,6 @@
 @{os_code_name = 'noble'}@
 FROM ubuntu:@os_code_name
 
-VOLUME ["/var/cache/apt/archives"]
-
 ENV DEBIAN_FRONTEND noninteractive
 
 @(TEMPLATE(

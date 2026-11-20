@@ -32,7 +32,7 @@ def test_configure_release_jobs_slice_induced_waves_and_repo_overrides(monkeypat
         'docker_base_image_override': 'registry:5000/ros-buildfarm/binarydeb-base-lyrical-amd64',
         'prebaked_base_image': True,
         'ros_buildfarm_repository_url': 'git://repo/ros_buildfarm.git',
-        'ros_buildfarm_repository_version': 'rossif/lyrical-pipelines-iter1',
+        'ros_buildfarm_repository_version': 'rossif/lyrical-pipelines-iter2',
         'slice_packages': ['ament_package', 'rcutils', 'rclcpp'],
         'repositories': {'urls': ['http://repo/ubuntu/building'], 'keys': ['KEY0']},
     })
@@ -78,6 +78,7 @@ def test_configure_release_jobs_slice_induced_waves_and_repo_overrides(monkeypat
     assert ("[['Lbin_uR64__ament_package__ubuntu_resolute_amd64__binary'], "
             "['Lbin_uR64__rcutils__ubuntu_resolute_amd64__binary'], "
             "['Lbin_uR64__rclcpp__ubuntu_resolute_amd64__binary']]") in wave_script
+    assert 'refreshAmentAfterWave: null' in wave_script
 
     args = SimpleNamespace(config_url='http://repo/index.yaml', rosdistro_name='lyrical', release_build_name='default')
     reconf_xml = maint.get_reconfigure_jobs_job_config(args, cfg, bf)
@@ -90,3 +91,55 @@ def test_configure_release_jobs_slice_induced_waves_and_repo_overrides(monkeypat
     trig_groovy = tmp_path / 'trigger.groovy'
     trigger_job.trigger_release_jobs('http://repo/index.yaml', 'lyrical', 'default', False, True, '/tmp/c', groovy_script=str(trig_groovy))
     assert 'ext_mid' not in trig_groovy.read_text(encoding='utf-8')
+
+
+def test_ament_base_override_precedence_and_wave_refresh_wiring(monkeypatch, tmp_path):
+    bf = ReleaseBuildFile('default', {
+        'type': 'release-build', 'version': 2, 'abi_incompatibility_assumed': True,
+        'targets': {'ubuntu': {'resolute': {'amd64': None}}}, 'skip_ignored_packages': True,
+        'target_repository': 'http://repo/ubuntu/building', 'upload_credential_id': 'jenkins-agent',
+        'pipeline_jobs': True, 'orchestration_mode': 'wave-orchestrator', 'docker_mode': 'ament-base',
+        'docker_base_image_override': 'registry:5000/ros-buildfarm/binarydeb-base-lyrical-amd64',
+        'prebaked_base_image': True, 'ros_buildfarm_repository_url': 'git://repo/ros_buildfarm.git',
+        'ros_buildfarm_repository_version': 'rossif/lyrical-pipelines-iter2',
+        'slice_packages': ['ament_package', 'ament_cmake_core', 'ament_cmake', 'rcutils', 'rclcpp'],
+        'repositories': {'urls': ['http://repo/ubuntu/building'], 'keys': ['KEY0']},
+    })
+    cfg = SimpleNamespace(
+        jenkins_url='http://jenkins:8080', rosdistro_index_url='http://repo/rosdistro/index-v4.yaml',
+        git_ssh_credential_id=None, notify_emails=[], distributions={'lyrical': {}},
+        prerequisites={'debian_repositories': ['http://repo/ubuntu/building'], 'debian_repository_keys': ['KEY0']},
+    )
+    pkgs = {
+        'ament_package': _pkg('ament_package'), 'ament_cmake_core': _pkg('ament_cmake_core', ['ament_package']),
+        'ament_cmake': _pkg('ament_cmake', ['ament_cmake_core']), 'ament_cmake_ros': _pkg('ament_cmake_ros', ['ament_cmake']),
+        'rcutils': _pkg('rcutils', ['ament_cmake_ros']), 'rclcpp': _pkg('rclcpp', ['rcutils']),
+    }
+    rel_repo = SimpleNamespace(version='1.0.0-1', url='https://github.com/ros2/rcutils.git', package_names=list(pkgs))
+    dist = SimpleNamespace(
+        release_packages={n: SimpleNamespace(repository_name='r') for n in pkgs},
+        repositories={'r': SimpleNamespace(release_repository=rel_repo)},
+    )
+    for attr, val in (
+        ('get_config_index', lambda _u: cfg), ('get_release_build_files', lambda _c, _d: {'default': bf}),
+        ('get_index', lambda _u: SimpleNamespace(distributions={'lyrical': {'distribution_type': 'ros2'}})),
+        ('get_distribution_file', lambda *_a: dist), ('_get_and_parse_distribution_cache', lambda *_a, **_kw: pkgs),
+        ('configure_release_views', lambda *_a, **_kw: {'Lsrc_uR': '<v/>', 'Lbin_uR64': '<v/>'}),
+    ):
+        monkeypatch.setattr(release_job, attr, val)
+
+    release_job.configure_release_jobs('http://repo/index.yaml', 'lyrical', 'default', groovy_script=str(tmp_path / 'r.groovy'))
+    jobs = {p.name.split(' ', 1)[1]: p.read_text(encoding='utf-8') for p in (tmp_path / 'job_configs').iterdir()}
+
+    for pre_ament in ('ament_package', 'ament_cmake_core', 'ament_cmake'):
+        script = ElementTree.fromstring(jobs['Lbin_uR64__%s__ubuntu_resolute_amd64__binary' % pre_ament]).find('./definition/script').text
+        assert "dockerBaseImageOverride: 'registry:5000/ros-buildfarm/binarydeb-base-lyrical-amd64'" in script
+    for post_ament in ('rcutils', 'rclcpp'):
+        script = ElementTree.fromstring(jobs['Lbin_uR64__%s__ubuntu_resolute_amd64__binary' % post_ament]).find('./definition/script').text
+        assert "dockerBaseImageOverride: 'registry:5000/ros-buildfarm/ament-base-lyrical-amd64'" in script
+
+    prep_root = ElementTree.fromstring(jobs['Lrel_prepare-base-images'])
+    assert [n.text for n in prep_root.findall('.//hudson.model.BooleanParameterDefinition/name')] == ['ament_only', 'skip_cleanup']
+    assert "amentBaseImage: 'registry:5000/ros-buildfarm/ament-base-lyrical-amd64:resolute'" in prep_root.find('./definition/script').text
+    wave_script = ElementTree.fromstring(jobs['Lrel_pipeline-trigger-wave']).find('./definition/script').text
+    assert "prepareBaseImagesJobName: 'Lrel_prepare-base-images'" in wave_script and 'refreshAmentAfterWave: 2' in wave_script

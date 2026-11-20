@@ -9,8 +9,6 @@
     docker_base_image_override=docker_base_image_override,
 ))@
 
-VOLUME ["/var/cache/apt/archives"]
-
 ENV DEBIAN_FRONTEND noninteractive
 
 @[if not vars().get('prebaked_base_image')]@
@@ -92,11 +90,13 @@ RUN . /etc/os-release && test "$VERSION_ID" = "20.04" && test "$(uname -m)" = "a
     'snippet/install_dependencies.Dockerfile.em',
     dependencies=dependencies,
     dependency_versions=dependency_versions,
+    buildkit_apt_cache=vars().get('buildkit_apt_cache', False),
 ))@
 
 @(TEMPLATE(
     'snippet/install_dependencies_from_file.Dockerfile.em',
     install_lists=install_lists,
+    buildkit_apt_cache=vars().get('buildkit_apt_cache', False),
 ))@
 
 USER buildfarm

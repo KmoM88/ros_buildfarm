@@ -16,7 +16,7 @@ def _base_job_data(**overrides):
         'node_label': 'buildagent',
         'disabled': False,
         'ros_buildfarm_repository': Repository(
-            'git://repo/ros_buildfarm.git', 'rossif/lyrical-pipelines-iter1'),
+            'git://repo/ros_buildfarm.git', 'rossif/lyrical-pipelines-iter2'),
         'repository_urls': ['http://repo/ubuntu/building', 'http://repo.ros2.org/ubuntu/building'],
         'repository_keys': ['-----BEGIN PGP PUBLIC KEY BLOCK-----\nLOCAL\n-----END PGP PUBLIC KEY BLOCK-----', 'OSRFKEY'],
         'target_repository': 'http://repo/ubuntu/building',
@@ -103,12 +103,21 @@ def test_pipeline_utility_job_template_xml():
             'sourceJobs': ['Lsrc_uR__ament_package__ubuntu_resolute__source'],
             'binaryWaves': [['Lbin_uR64__ament_package__ubuntu_resolute_amd64__binary']],
             'syncJobName': 'Lrel_sync-packages-to-testing_resolute_amd64',
+            'prepareBaseImagesJobName': 'Lrel_prepare-base-images',
+            'refreshAmentAfterWave': 2,
         },
+        'parameters': [
+            {'type': 'boolean', 'name': 'ament_only', 'description': 'Ament only'},
+            {'type': 'boolean', 'name': 'skip_cleanup', 'description': 'Skip cleanup'},
+        ],
     })
     root = ElementTree.fromstring(util_xml)
     assert root.tag == 'flow-definition'
     assert root.find('.//hint').text == 'SURVIVABLE_NONATOMIC'
     assert root.find('.//numToKeep').text == '10'
+    param_names = [n.text for n in root.findall('.//hudson.model.BooleanParameterDefinition/name')]
+    assert param_names == ['ament_only', 'skip_cleanup']
     script = root.find('./definition/script').text
     assert 'rosReleaseWaveOrchestrator([' in script
     assert "syncJobName: 'Lrel_sync-packages-to-testing_resolute_amd64'" in script
+    assert 'refreshAmentAfterWave: 2' in script

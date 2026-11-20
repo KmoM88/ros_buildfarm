@@ -473,6 +473,13 @@ def add_argument_prebaked_base_image(parser):
              'APT repositories, wrapper scripts, and base tools.')
 
 
+def add_argument_buildkit_apt_cache(parser):
+    parser.add_argument(
+        '--buildkit-apt-cache', action='store_true',
+        help='Mount persistent BuildKit APT archive cache and retain '
+             'downloaded .deb packages across builds.')
+
+
 def check_len_action(minargs, maxargs):
     class CheckLength(argparse.Action):
 

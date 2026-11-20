@@ -30,22 +30,23 @@ def main(argv=None):
         'is not what the server reported',
     )
 
-    command = next(iter(argv))
+    command = argv[0] if argv else ''
     if command in ('update', 'source'):
         rc, _, _ = call_apt_repeatedly(
             argv, known_error_strings, max_tries)
         return rc
-    elif command == 'update-install-clean':
+    elif command in ('update-install', 'update-install-clean'):
         install_argv = list(argv)
         install_argv.pop(0)
         return call_apt_update_install_clean(
-            install_argv, known_error_strings, max_tries)
+            install_argv, known_error_strings, max_tries,
+            clean=(command == 'update-install-clean'))
     else:
-        assert "Command '%s' not implemented" % command
+        raise ValueError("Command '%s' not implemented" % command)
 
 
 def call_apt_update_install_clean(
-        install_argv, known_error_strings, max_tries):
+        install_argv, known_error_strings, max_tries, clean=True):
     tries = 0
     command = 'update'
     while tries < max_tries:
@@ -75,8 +76,8 @@ def call_apt_update_install_clean(
                     list((command,)) + list(install_argv),
                     known_error_strings + known_error_strings_redo_update)
             if not known_error_conditions:
-                if rc != 0:
-                    # abort if install was unsuccessful
+                if rc != 0 or not clean:
+                    # abort if install was unsuccessful or clean is skipped
                     break
                 # move on to the clean command if install was successful
                 command = 'clean'

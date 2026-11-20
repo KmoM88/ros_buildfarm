@@ -15,7 +15,14 @@
 from .build_file import BuildFile
 
 VALID_ORCHESTRATION_MODES = ('reverse-trigger', 'wave-orchestrator')
-VALID_DOCKER_MODES = ('baseline', 'shared-generator', 'shared-generator-and-base')
+VALID_DOCKER_MODES = (
+    'baseline',
+    'shared-generator',
+    'shared-generator-and-base',
+    'buildkit-apt-cache',
+    'ephemeral-run',
+    'ament-base',
+)
 
 
 def _parse_bool(data, key, default):

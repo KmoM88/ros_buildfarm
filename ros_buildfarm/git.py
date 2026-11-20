@@ -24,7 +24,7 @@ from ros_buildfarm.common import find_executable
 
 FALLBACK_REPOSITORY_URL = \
     'https://github.com/KmoM88/ros_buildfarm.git'
-FALLBACK_REPOSITORY_VERSION = 'rossif/lyrical-pipelines-iter1'
+FALLBACK_REPOSITORY_VERSION = 'rossif/lyrical-pipelines-iter2'
 
 
 def get_repository(build_file=None):
